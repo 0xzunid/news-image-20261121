@@ -1,53 +1,69 @@
-#!/usr/bin/env python3
-"""Entry for make.fun news-image-20261121: sum up 21 November's world news
-in one image.
+"""News image entry for 21 November 2026.
 
-The deliverable is entry.png, a 1024x1024 newspaper front page drawn with
-Pillow (crisp baked-in headline text, no AI-image text garbling). It sums up
-Saturday 21 November 2026: Russian missiles and a suspected drone crashing
-in Poland during Moscow's biggest attack on Ukraine this year; Wall Street
-sliding into correction as the AI trade melts down; Russia's biggest barrage
-of the year on Ukraine hours after the Shenzhen summit; the UK and EU sealing
-food, carbon and youth-mobility deals; Erasca's ERAS-0015 pill shrinking
-pancreatic tumours in an early trial; plus the Palisades Fire conviction,
-Cyclone Akvan, Voyager 1's one-light-day milestone and the US–Iran standoff
-in one "Also today" strip.
+Copies the bundled entry.png byte-for-byte to the output directory
+(``$MAKEFUN_OUTPUT_DIR``, default ``/output``), then verifies the copy
+by comparing its SHA-256 digest against the bundled original and
+prints the size and digest.
 
-This script just copies the bundled image to the grader's output directory.
-It is stdlib only and makes no network calls.
+Stdlib only; no network access.
 """
 
 import hashlib
 import os
 import shutil
+import struct
 import sys
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+SOURCE = Path(__file__).resolve().parent / "entry.png"
+DEFAULT_OUTPUT_DIR = "/output"
 
 
-def sha256_of(path):
+def sha256_file(path):
     digest = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
+def png_dimensions(path):
+    """Return (width, height) from the PNG IHDR chunk, or None."""
+    with open(path, "rb") as handle:
+        header = handle.read(33)
+    if len(header) < 33 or header[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    if header[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", header[16:24])
+    return width, height
+
+
 def main():
-    src = os.path.join(HERE, "entry.png")
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
-    os.makedirs(out_dir, exist_ok=True)
-    dst = os.path.join(out_dir, "entry.png")
-    shutil.copyfile(src, dst)
-    # Verify the copy landed byte for byte: a truncated or partial image
-    # would silently grade as a broken front page.
-    if sha256_of(src) != sha256_of(dst):
-        print("error: copied entry.png does not match the bundled image",
+    output_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or DEFAULT_OUTPUT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / "entry.png"
+
+    shutil.copyfile(SOURCE, destination)
+
+    dimensions = png_dimensions(destination)
+    if dimensions != (1024, 1024):
+        print(f"unexpected PNG dimensions: {dimensions}, expected (1024, 1024)",
               file=sys.stderr)
         return 1
-    print("wrote", dst, "(%d bytes, sha256 %s)"
-          % (os.path.getsize(dst), sha256_of(dst)))
+
+    source_digest = sha256_file(SOURCE)
+    copied_digest = sha256_file(destination)
+    if copied_digest != source_digest:
+        print(f"sha256 mismatch: {copied_digest} != {source_digest}",
+              file=sys.stderr)
+        return 1
+
+    size = destination.stat().st_size
+    print(f"wrote {destination} ({size} bytes)")
+    print(f"sha256: {copied_digest}")
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
